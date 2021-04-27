@@ -458,7 +458,6 @@ def create_prog_for_window(time_steps, start_state, is_initial=False):
         d = universe.position_wrt_planet(state[t], a.name)
         prog.AddConstraint(d.dot(d) >= a.orbit**2)
 
-<<<<<<< HEAD
     # thrust limits, for all t:
     # two norm of the rocket thrust
     # lower or equal to the rocket thrust_limit
@@ -478,38 +477,6 @@ def create_prog_for_window(time_steps, start_state, is_initial=False):
 
     # be sure that the solution is optimal
     assert result.is_success()
-=======
-# thrust limits, for all t:
-# two norm of the rocket thrust
-# lower or equal to the rocket thrust_limit
-t = 0
-for t in range(time_steps):
-    thrust_t_sq = thrust[t].dot(thrust[t])
-    norm_thrust_t = thrust_t_sq / rocket.thrust_limit**2
-    prog.AddConstraint(norm_thrust_t <= 1)
-    t += 1
-  
-# velocity limits, for all t:
-# two norm of the rocket velocity
-# lower or equal to the rocket velocity_limit
-t = 0
-for t in range(time_steps):
-    vel_t_sq = state[t][2:].dot(state[t][2:])
-    norm_vel_t = vel_t_sq / rocket.velocity_limit**2
-    prog.AddConstraint(norm_vel_t <= 1)
-    t += 1
-
-# avoid collision with asteroids, for all t, for all asteroids:
-# two norm of the rocket distance from the asteroid
-# greater or equal to the asteroid orbit
-t = 0
-for t in range(time_steps):
-    for asteroid in asteroids:
-        dist_t = universe.position_wrt_planet(state[t], asteroid.name)
-        dist_t_sq = dist_t.dot(dist_t)
-        prog.AddConstraint(dist_t_sq >= asteroid.orbit**2)
-    t += 1
->>>>>>> c8a1cd00f945855eb81b44dc925267816f62c4e8
 
     # retrieve optimal solution
     thrust_window = result.GetSolution(thrust)
@@ -558,8 +525,3 @@ plot_state_trajectory(state_opt, universe)
 
 plt.figure()
 plot_rocket_limits(rocket, thrust_opt, state_opt)
-<<<<<<< HEAD
-=======
-
-plt.show()
->>>>>>> c8a1cd00f945855eb81b44dc925267816f62c4e8
