@@ -27,9 +27,6 @@ from pydrake.all import (Variable, SymbolicVectorSystem, DiagramBuilder,
 from matplotlib import rcParams
 rcParams['figure.figsize'] = (8, 5)
 
-print("IMPORTED")
-
-
 # dictionary of functions to convert the units of the problem data
 # the fist argument is the numeric value we want to convert
 # the second argument is the unit power
@@ -446,9 +443,6 @@ prog.SetInitialGuess(state, state_guess)
 # thrust limits, for all t:
 # two norm of the rocket thrust
 # lower or equal to the rocket thrust_limit
-
-# norm_thrust_sq = thrust[:].dot(thrust[:])
-# prog.AddConstraint(norm_thrust_sq / rocket.thrust_limit**2 <= 1)
 t = 0
 for t in range(time_steps):
     thrust_t_sq = thrust[t].dot(thrust[t])
@@ -459,7 +453,6 @@ for t in range(time_steps):
 # velocity limits, for all t:
 # two norm of the rocket velocity
 # lower or equal to the rocket velocity_limit
-
 t = 0
 for t in range(time_steps):
     vel_t_sq = state[t][2:].dot(state[t][2:])
@@ -470,7 +463,6 @@ for t in range(time_steps):
 # avoid collision with asteroids, for all t, for all asteroids:
 # two norm of the rocket distance from the asteroid
 # greater or equal to the asteroid orbit
-
 t = 0
 for t in range(time_steps):
     for asteroid in asteroids:
@@ -503,33 +495,13 @@ def fuel_consumption(thrust, time_interval):
     return time_interval * sum(t.dot(t) for t in thrust)
 print(f'Is fuel consumption {fuel_consumption(thrust_opt, time_interval)} lower than 250?')
 
-
+print("IMPORTED")
 
 
 plt.figure()
 plot_state_trajectory(state_opt, universe)
 
-
-
 plt.figure()
 plot_rocket_limits(rocket, thrust_opt, state_opt)
 
-
-# x axis values
-x = [1,2,3]
-# corresponding y axis values
-y = [2,4,1]
-  
-# plotting the points 
-plt.plot(x, y)
-  
-# naming the x axis
-plt.xlabel('x - axis')
-# naming the y axis
-plt.ylabel('y - axis')
-  
-# giving a title to my graph
-plt.title('My first graph!')
-  
-# function to show the plot
 plt.show()
