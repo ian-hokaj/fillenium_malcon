@@ -408,8 +408,13 @@ def interpolate_rocket_state(p_initial, p_final, time_steps):
 
     return state_guess
 
+# rolls out current state dynamics over a horizon or remaining steps (assuming constant thrust)
+# Returns state at end of window
+def rollout(state, remaining_steps):
+    return state
 
-def create_prog_for_window(window, start_state, is_initial=False):
+
+def create_prog_for_window(window, start_state, remaining_window, is_initial=False):
     # initialize optimization
     prog = MathematicalProgram()
 
@@ -469,13 +474,20 @@ def create_prog_for_window(window, start_state, is_initial=False):
     for t in range(window):
       for a in asteroids:
         d = universe.position_wrt_planet(state[t], a.name)
-        prog.AddConstraint(d.dot(d) >= a.orbit**2)
+        # prog.AddConstraint(d.dot(d) >= a.orbit**2)
 
     # thrust limits, for all t:
     # two norm of the rocket thrust
     # lower or equal to the rocket thrust_limit
     for t in range(window):
       prog.AddConstraint(thrust[t].dot(thrust[t]) <= rocket.thrust_limit**2)
+
+
+    # rollout dynamics (recursive feasibility) constraint
+    final_state = rollout(state[-1], remaining_window)
+    for residual in universe.constraint_state_to_orbit(final_state, 'Mars'):
+        prog.AddConstraint(residual == 0)
+
 
     # minimize fuel consumption, for all t:
     # add to the objective the two norm squared of the thrust
@@ -484,12 +496,14 @@ def create_prog_for_window(window, start_state, is_initial=False):
 
     prog.AddCost(time_interval * sum(t.dot(t) for t in thrust))
 
+    # 
+
     # solve mathematical program
     solver = SnoptSolver()
     result = solver.Solve(prog)
 
     # be sure that the solution is optimal
-    # assert result.is_success()
+    assert result.is_success()
 
     # retrieve optimal solution
     thrust_window = result.GetSolution(thrust)
