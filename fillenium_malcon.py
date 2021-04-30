@@ -412,14 +412,14 @@ def interpolate_rocket_state(p_initial, p_final, time_steps):
 # Returns state at end of window
 def rollout(state, thrust, time_steps, time_interval):
     # coarse dynamics over time steps
-    curr_state = state
-    for t in range(time_steps):
-        state_dot = universe.rocket_continuous_dynamics(curr_state, thrust)
-        curr_state += state_dot*time_interval
-    return curr_state
+    state_dot = universe.rocket_continuous_dynamics(state, thrust)
+    final_state = state + state_dot*time_interval*time_steps/2
+    state_dot = universe.rocket_continuous_dynamics(final_state, thrust)
+    final_state += state_dot*time_interval*time_steps/2
+    return final_state
 
 
-def create_prog_for_window(window, start_state, remaining_window, is_initial=False):
+def create_prog_for_window(window, start_state, remaining_window, is_initial=False, in_final=False):
     # initialize optimization
     prog = MathematicalProgram()
 
@@ -438,9 +438,10 @@ def create_prog_for_window(window, start_state, remaining_window, is_initial=Fal
         prog.AddLinearConstraint(state[0,3] == start_state[3])
 
 
-    # # terminal orbit constraints
-    # for residual in universe.constraint_state_to_orbit(state[-1], 'Mars'):
-    #     prog.AddConstraint(residual == 0)
+    # terminal orbit constraints
+    if in_final:
+        for residual in universe.constraint_state_to_orbit(state[-1], 'Mars'):
+            prog.AddConstraint(residual == 0)
 
     # discretized dynamics
     for t in range(window):
@@ -463,19 +464,15 @@ def create_prog_for_window(window, start_state, remaining_window, is_initial=Fal
         )
     prog.SetInitialGuess(state, state_guess)
 
-
-
     # velocity limits, for all t:
     # two norm of the rocket velocity
     # lower or equal to the rocket velocity_limit
-
     for t in range(window):
       prog.AddConstraint(state[t][2:4].dot(state[t][2:4]) <= rocket.velocity_limit**2)
 
     # avoid collision with asteroids, for all t, for all asteroids:
     # two norm of the rocket distance from the asteroid
     # greater or equal to the asteroid orbit
-
     for t in range(window):
       for a in asteroids:
         d = universe.position_wrt_planet(state[t], a.name)
@@ -501,14 +498,12 @@ def create_prog_for_window(window, start_state, remaining_window, is_initial=Fal
 
     prog.AddCost(time_interval * sum(t.dot(t) for t in thrust))
 
-    #
-
     # solve mathematical program
     solver = SnoptSolver()
     result = solver.Solve(prog)
 
     # be sure that the solution is optimal
-    assert result.is_success()
+    # assert result.is_success()
 
     # retrieve optimal solution
     thrust_window = result.GetSolution(thrust)
@@ -520,7 +515,7 @@ def create_prog_for_window(window, start_state, remaining_window, is_initial=Fal
 # numeric parameters
 time_interval = .5 # in years
 time_steps = 100
-window = 10 # time steps per calculation
+window = 15 # time steps per calculation
 # Earth state: [ 2.32035322  0.18721759 -0.04109043  0.01544109]
 
 
@@ -534,11 +529,13 @@ for i in range(time_steps):
 
     # start at previous state, compute over window
     if i == 0:
-        thrust_window, state_window = create_prog_for_window(curr_window, None, time_steps - curr_window, is_initial=True)
+        thrust_window, state_window = create_prog_for_window(curr_window, None, time_steps - i, is_initial=True)
         states.append(state_window[0])
         # print(states[0])
+    elif curr_window < window: # in final approach
+        thrust_window, state_window = create_prog_for_window(curr_window, states[-1], time_steps - i, in_final=True)
     else:
-        thrust_window, state_window = create_prog_for_window(curr_window, states[-1], time_steps - curr_window,)
+        thrust_window, state_window = create_prog_for_window(curr_window, states[-1], time_steps - i)
 
     thrust_step = thrust_window[0]
     state_step = state_window[1]
