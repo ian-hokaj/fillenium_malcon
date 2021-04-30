@@ -66,8 +66,10 @@ class Rocket(object):
 # instantiate the rocket
 rocket = Rocket(
     5.49e5, # mass of Falcon 9 in kg
-    .25,    # very small thrust limit in kg * m * s^-2
-    170,    # very small velocity limit in m * s^-1
+    # .25,    # very small thrust limit in kg * m * s^-2
+    # 170,    # very small velocity limit in m * s^-1
+    20,
+    20000,
 )
 
 
@@ -407,27 +409,31 @@ def interpolate_rocket_state(p_initial, p_final, time_steps):
     return state_guess
 
 
-def create_prog_for_window(time_steps, start_state, is_initial=False):
+def create_prog_for_window(window, start_state, is_initial=False):
     # initialize optimization
     prog = MathematicalProgram()
 
     # optimization variables
-    state = prog.NewContinuousVariables(time_steps + 1, 4, 'state')
-    thrust = prog.NewContinuousVariables(time_steps, 2, 'thrust')
+    state = prog.NewContinuousVariables(window + 1, 4, 'state')
+    thrust = prog.NewContinuousVariables(window, 2, 'thrust')
 
     # initial orbit constraints
     if is_initial:
         for residual in universe.constraint_state_to_orbit(state[0], 'Earth'):
             prog.AddConstraint(residual == 0)
     else:
-        prog.AddConstraint(state[0] == start_state)
+        prog.AddConstraint(state[0,0] == start_state[0])
+        prog.AddConstraint(state[0,1] == start_state[1])
+        prog.AddConstraint(state[0,2] == start_state[2])
+        prog.AddConstraint(state[0,3] == start_state[3])
+
 
     # terminal orbit constraints
     for residual in universe.constraint_state_to_orbit(state[-1], 'Mars'):
         prog.AddConstraint(residual == 0)
 
     # discretized dynamics
-    for t in range(time_steps):
+    for t in range(window):
         residuals = universe.rocket_discrete_dynamics(state[t], state[t+1], thrust[t], time_interval)
         for residual in residuals:
             prog.AddConstraint(residual == 0)
@@ -436,7 +442,7 @@ def create_prog_for_window(time_steps, start_state, is_initial=False):
     state_guess = interpolate_rocket_state(
         universe.get_planet('Earth').position,
         universe.get_planet('Mars').position,
-        time_steps
+        window
     )
     prog.SetInitialGuess(state, state_guess)
 
@@ -446,14 +452,14 @@ def create_prog_for_window(time_steps, start_state, is_initial=False):
     # two norm of the rocket velocity
     # lower or equal to the rocket velocity_limit
 
-    for t in range(time_steps):
+    for t in range(window):
       prog.AddConstraint(state[t][2:4].dot(state[t][2:4]) <= rocket.velocity_limit**2)
 
     # avoid collision with asteroids, for all t, for all asteroids:
     # two norm of the rocket distance from the asteroid
     # greater or equal to the asteroid orbit
 
-    for t in range(time_steps):
+    for t in range(window):
       for a in asteroids:
         d = universe.position_wrt_planet(state[t], a.name)
         prog.AddConstraint(d.dot(d) >= a.orbit**2)
@@ -461,7 +467,7 @@ def create_prog_for_window(time_steps, start_state, is_initial=False):
     # thrust limits, for all t:
     # two norm of the rocket thrust
     # lower or equal to the rocket thrust_limit
-    for t in range(time_steps):
+    for t in range(window):
       prog.AddConstraint(thrust[t].dot(thrust[t]) <= rocket.thrust_limit**2)
 
     # minimize fuel consumption, for all t:
@@ -488,15 +494,16 @@ def create_prog_for_window(time_steps, start_state, is_initial=False):
 # numeric parameters
 time_interval = .5 # in years
 time_steps = 100
-window = 100 # time steps per calculation
+window = 10 # time steps per calculation
 
 states = []
 thrusts = []
 
 for i in range(time_steps):
-    print("ITER", i, "OF", time_steps)
 
     window = min(window, time_steps-i)
+    print("ITER", i, "OF", time_steps, "WINDOW", window)
+
     # start at previous state, compute over window
     if i == 0:
         thrust_window, state_window = create_prog_for_window(window, None, is_initial=True)
@@ -507,7 +514,6 @@ for i in range(time_steps):
     state_step = state_window[1]
     states.append(state_step)
     thrusts.append(thrust_step)
-
 
 state_opt = np.array(states)
 thrust_opt = np.array(thrusts)
