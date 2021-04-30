@@ -410,8 +410,13 @@ def interpolate_rocket_state(p_initial, p_final, time_steps):
 
 # rolls out current state dynamics over a horizon or remaining steps (assuming constant thrust)
 # Returns state at end of window
-def rollout(state, remaining_steps):
-    return state
+def rollout(state, thrust, time_steps, time_interval):
+    # coarse dynamics over time steps
+    curr_state = state
+    for t in range(time_steps):
+        state_dot = universe.rocket_continuous_dynamics(curr_state, thrust)
+        curr_state += state_dot*time_interval
+    return curr_state
 
 
 def create_prog_for_window(window, start_state, remaining_window, is_initial=False):
@@ -433,9 +438,9 @@ def create_prog_for_window(window, start_state, remaining_window, is_initial=Fal
         prog.AddLinearConstraint(state[0,3] == start_state[3])
 
 
-    # terminal orbit constraints
-    for residual in universe.constraint_state_to_orbit(state[-1], 'Mars'):
-        prog.AddConstraint(residual == 0)
+    # # terminal orbit constraints
+    # for residual in universe.constraint_state_to_orbit(state[-1], 'Mars'):
+    #     prog.AddConstraint(residual == 0)
 
     # discretized dynamics
     for t in range(window):
@@ -484,7 +489,7 @@ def create_prog_for_window(window, start_state, remaining_window, is_initial=Fal
 
 
     # rollout dynamics (recursive feasibility) constraint
-    final_state = rollout(state[-1], remaining_window)
+    final_state = rollout(state[-1], thrust[-1], remaining_window, time_interval)
     for residual in universe.constraint_state_to_orbit(final_state, 'Mars'):
         prog.AddConstraint(residual == 0)
 
@@ -496,7 +501,7 @@ def create_prog_for_window(window, start_state, remaining_window, is_initial=Fal
 
     prog.AddCost(time_interval * sum(t.dot(t) for t in thrust))
 
-    # 
+    #
 
     # solve mathematical program
     solver = SnoptSolver()
@@ -515,7 +520,7 @@ def create_prog_for_window(window, start_state, remaining_window, is_initial=Fal
 # numeric parameters
 time_interval = .5 # in years
 time_steps = 100
-window = 100 # time steps per calculation
+window = 10 # time steps per calculation
 # Earth state: [ 2.32035322  0.18721759 -0.04109043  0.01544109]
 
 
@@ -524,17 +529,16 @@ thrusts = []
 
 for i in range(time_steps):
 
-    curr_window = window - i
-    # window = min(window, time_steps-i)
+    curr_window = min(window, time_steps-i)
     print("ITER", i, "OF", time_steps, "WINDOW", curr_window)
 
     # start at previous state, compute over window
     if i == 0:
-        thrust_window, state_window = create_prog_for_window(curr_window, None, is_initial=True)
+        thrust_window, state_window = create_prog_for_window(curr_window, None, time_steps - curr_window, is_initial=True)
         states.append(state_window[0])
         # print(states[0])
     else:
-        thrust_window, state_window = create_prog_for_window(curr_window, states[-1])
+        thrust_window, state_window = create_prog_for_window(curr_window, states[-1], time_steps - curr_window,)
 
     thrust_step = thrust_window[0]
     state_step = state_window[1]
