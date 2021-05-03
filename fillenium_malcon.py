@@ -66,8 +66,8 @@ class Rocket(object):
 # instantiate the rocket
 rocket = Rocket(
     5.49e5, # mass of Falcon 9 in kg
-    .25,    # very small thrust limit in kg * m * s^-2
-    170,    # very small velocity limit in m * s^-1
+    .35, #.25,    # very small thrust limit in kg * m * s^-2
+    200, #170,    # very small velocity limit in m * s^-1
     # 20,
     # 20000,
 )
@@ -464,6 +464,14 @@ def create_prog_for_window(window, start_state, remaining_window, is_initial=Fal
         )
     prog.SetInitialGuess(state, state_guess)
 
+    # get closer to mars over this window
+    if not in_final:
+        p1 = universe.position_wrt_planet(state[0], 'Mars')
+        d1 = p1.dot(p1) ** .5
+        p2 = universe.position_wrt_planet(state[-1], 'Mars')
+        d2 = p2.dot(p2) ** .5
+        prog.AddConstraint(d2 * 1.05 <= d1)
+
     # velocity limits, for all t:
     # two norm of the rocket velocity
     # lower or equal to the rocket velocity_limit
@@ -476,7 +484,7 @@ def create_prog_for_window(window, start_state, remaining_window, is_initial=Fal
     for t in range(window):
       for a in asteroids:
         d = universe.position_wrt_planet(state[t], a.name)
-        # prog.AddConstraint(d.dot(d) >= a.orbit**2)
+        prog.AddConstraint(d.dot(d) >= a.orbit**2)
 
     # thrust limits, for all t:
     # two norm of the rocket thrust
@@ -485,10 +493,10 @@ def create_prog_for_window(window, start_state, remaining_window, is_initial=Fal
       prog.AddConstraint(thrust[t].dot(thrust[t]) <= rocket.thrust_limit**2)
 
 
-    # rollout dynamics (recursive feasibility) constraint
-    final_state = rollout(state[-1], thrust[-1], remaining_window, time_interval)
-    for residual in universe.constraint_state_to_orbit(final_state, 'Mars'):
-        prog.AddConstraint(residual == 0)
+    # # rollout dynamics (recursive feasibility) constraint
+    # final_state = rollout(state[-1], thrust[-1], remaining_window, time_interval)
+    # for residual in universe.constraint_state_to_orbit(final_state, 'Mars'):
+    #     prog.AddConstraint(residual == 0)
 
 
     # minimize fuel consumption, for all t:
