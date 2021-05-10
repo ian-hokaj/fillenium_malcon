@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 # pydrake imports
 from pydrake.all import (Variable, SymbolicVectorSystem, DiagramBuilder,
                          LogOutput, Simulator, ConstantVectorSource,
-                         MathematicalProgram, Solve, SnoptSolver, PiecewisePolynomial, eq)
+                         MathematicalProgram, Solve, SnoptSolver, PiecewisePolynomial)
 
 # increase default size matplotlib figures
 from matplotlib import rcParams
@@ -66,10 +66,10 @@ class Rocket(object):
 # instantiate the rocket
 rocket = Rocket(
     5.49e5, # mass of Falcon 9 in kg
-    # .25,    # very small thrust limit in kg * m * s^-2
-    # 170,    # very small velocity limit in m * s^-1
-    .35, #DEBUG
-    200, #DEBUG
+    .25,    # very small thrust limit in kg * m * s^-2
+    170,    # very small velocity limit in m * s^-1
+    # 20,
+    # 20000,
 )
 
 
@@ -84,6 +84,7 @@ class Planet(object):
         position,      # position of the planet in the 2d universe in m
         orbit,         # radius of the orbit in m
         radius=np.nan, # radius of the planet in m (optional)
+        velocity=0,
     ):
 
         # store the data using the scaled units
@@ -102,6 +103,7 @@ earth = Planet(
     np.array([2.25e11, 0]), # (average) distance wrt Mars in m
     2e10,                   # orbit radius in m (chosen "big enough" for the plots)
     6.378e6,                # planet radius in m
+    # 0,
 )
 
 # planet Mars: https://en.wikipedia.org/wiki/Mars
@@ -112,15 +114,15 @@ mars = Planet(
     np.zeros(2), # Mars is chosen as the origin of our 2D universe
     1.5e10,      # orbit radius in m
     3.389e6,     # radius in m
+    # 0,
 )
 
 # asteroids with random data in random positions
-np.random.seed(3)
+np.random.seed(0)
 n_asteroids = 10
-# n_asteroids = 25 #DEBUG
 asteroids = []
 for i in range(n_asteroids):
-    mass = np.abs(np.random.randn()) * 2e22 #5e22
+    mass = np.abs(np.random.randn()) * 5e22
     orbit = mass / 5e12
     earth_from_mars = unit_converter['length'](earth.position, -1)
     asteroid_from_mars = np.random.randn(2) * 3e10 + earth_from_mars / 2
@@ -130,7 +132,7 @@ for i in range(n_asteroids):
             'brown',            # color for plot
             mass,               # mass in kg
             asteroid_from_mars, # distance from Mars in m
-            orbit,        # radius danger area in m
+            mass / 5e12,        # radius danger area in m
         )
     )
 
@@ -201,8 +203,7 @@ class Universe(object):
         a = thrust / self.rocket.mass
 
         # accelerations due to the planets
-        for planet in self.planets[:2]: #DEBUG
-        # for planet in self.planets:
+        for planet in self.planets:
             a = a + self.acceleration_from_planet(state, planet.name)
 
         # concatenate velocity and acceleration
@@ -283,6 +284,12 @@ class Universe(object):
 
             # print the result
             print('Gravity acceleration on ' + name + f' is {g} m/s^2.')
+
+
+    # def planetary_dynamics(self, state):
+    #     a = 0 #hardcode no accelarations
+        
+
 
 
 # instantiate universe
@@ -406,174 +413,144 @@ def interpolate_rocket_state(p_initial, p_final, time_steps):
 
     # sample state on the time grid and add small random noise
     state_guess = np.vstack([state.value(t * time_interval).T for t in range(time_steps + 1)])
-    # state_guess += np.random.rand(*state_guess.shape) * 5e-6
+    state_guess += np.random.rand(*state_guess.shape) * 5e-6
 
     return state_guess
-
-# rolls out current state dynamics over a horizon or remaining steps (assuming constant thrust)
-# Returns state at end of window
-def rollout(state, thrust, time_steps, time_interval):
-    # coarse dynamics over time steps
-    state_dot = universe.rocket_continuous_dynamics(state, thrust)
-    final_state = state + state_dot*time_interval*time_steps/2
-    state_dot = universe.rocket_continuous_dynamics(final_state, thrust)
-    final_state += state_dot*time_interval*time_steps/2
-    return final_state
-
-# 4-step rollout dynamics
-# def rollout(state, thrust, time_steps, time_interval):
-#     # coarse dynamics over time steps
-#     state_dot = universe.rocket_continuous_dynamics(state, thrust)
-#     final_state = state + state_dot*time_interval*time_steps/4
-#     state_dot = universe.rocket_continuous_dynamics(final_state, thrust)
-#     final_state += state_dot*time_interval*time_steps/4
-#     state_dot = universe.rocket_continuous_dynamics(final_state, thrust)
-#     final_state += state_dot*time_interval*time_steps/4
-#     state_dot = universe.rocket_continuous_dynamics(final_state, thrust)
-#     final_state += state_dot*time_interval*time_steps/4
-#     return final_state
-
-
-def create_prog_for_window(window, start_state, step, total, is_initial=False, in_final=False):
-    # initialize optimization
-    prog = MathematicalProgram()
-
-    # optimization variables
-    state = prog.NewContinuousVariables(window + 1, 4, 'state')
-    thrust = prog.NewContinuousVariables(window, 2, 'thrust')
-
-    # initial orbit constraints
-    if is_initial:
-        for residual in universe.constraint_state_to_orbit(state[0], 'Earth'):
-            prog.AddConstraint(residual == 0)
-    else:
-        prog.AddConstraint(eq(state[0], start_state))
-
-
-    # terminal orbit constraints
-    if in_final:
-        for residual in universe.constraint_state_to_orbit(state[-1], 'Mars'):
-            prog.AddConstraint(residual == 0)
-
-    # discretized dynamics
-    for t in range(window):
-        residuals = universe.rocket_discrete_dynamics(state[t], state[t+1], thrust[t], time_interval)
-        for residual in residuals:
-            prog.AddConstraint(residual == 0)
-
-    # initial guess
-    if is_initial:
-        state_guess = interpolate_rocket_state(
-            universe.get_planet('Earth').position,
-            universe.get_planet('Mars').position,
-            total
-        )[0:window+1]
-    else:
-        state_guess = interpolate_rocket_state(
-            start_state[0:2],
-            universe.get_planet('Mars').position,
-            total-step
-        )[0:window+1]
-    prog.SetInitialGuess(state, state_guess)
-
-    # # get closer to mars over this window
-    # if not in_final:
-    #     p1 = universe.position_wrt_planet(state[0], 'Mars')
-    #     d1 = p1.dot(p1) ** .5
-    #     p2 = universe.position_wrt_planet(state[-1], 'Mars')
-    #     d2 = p2.dot(p2) ** .5
-    #     prog.AddConstraint(d2 * 1.05 <= d1)
-
-    # velocity limits, for all t:
-    # two norm of the rocket velocity
-    # lower or equal to the rocket velocity_limit
-    for t in range(window):
-      prog.AddConstraint(state[t][2:4].dot(state[t][2:4]) <= rocket.velocity_limit**2)
-
-    # avoid collision with asteroids, for all t, for all asteroids:
-    # two norm of the rocket distance from the asteroid
-    # greater or equal to the asteroid orbit
-    for t in range(window):
-      for a in asteroids:
-        d = universe.position_wrt_planet(state[t], a.name)
-        prog.AddConstraint(d.dot(d) >= a.orbit**2)
-
-    # thrust limits, for all t:
-    # two norm of the rocket thrust
-    # lower or equal to the rocket thrust_limit
-    for t in range(window):
-      prog.AddConstraint(thrust[t].dot(thrust[t]) <= rocket.thrust_limit**2)
-
-    # rollout dynamics (recursive feasibility) constraint
-    if not in_final:
-        final_state = rollout(state[-1], thrust[-1], total-window-step, time_interval)
-        for residual in universe.constraint_state_to_orbit(final_state, 'Mars'):
-            prog.AddConstraint(residual == 0)
-
-    # minimize fuel consumption, for all t:
-    # add to the objective the two norm squared of the thrust
-    # multiplied by the time_interval so that the optimal cost
-    # approximates the time integral of the thrust squared
-
-    prog.AddCost(time_interval * sum(t.dot(t) for t in thrust))
-
-    # solve mathematical program
-    solver = SnoptSolver()
-    result = solver.Solve(prog)
-
-    # be sure that the solution is optimal
-    # print(result.is_success())
-
-    # retrieve optimal solution
-    thrust_window = result.GetSolution(thrust)
-    state_window = result.GetSolution(state)
-
-    return thrust_window, state_window
 
 
 # numeric parameters
 time_interval = .5 # in years
 time_steps = 100
-window = 25 # time steps per calculation
-# Earth state: [ 2.32035322  0.18721759 -0.04109043  0.01544109]
+
+# initialize optimization
+prog = MathematicalProgram()
+
+# optimization variables
+state = prog.NewContinuousVariables(time_steps + 1, 4, 'state')
+thrust = prog.NewContinuousVariables(time_steps, 2, 'thrust')
+
+# initial orbit constraints
+for residual in universe.constraint_state_to_orbit(state[0], 'Earth'):
+    prog.AddConstraint(residual == 0)
+
+# terminal orbit constraints
+for residual in universe.constraint_state_to_orbit(state[-1], 'Mars'):
+    prog.AddConstraint(residual == 0)
+    
+# discretized dynamics
+for t in range(time_steps):
+    residuals = universe.rocket_discrete_dynamics(state[t], state[t+1], thrust[t], time_interval)
+    for residual in residuals:
+        prog.AddConstraint(residual == 0)
+    
+# initial guess
+state_guess = interpolate_rocket_state(
+    universe.get_planet('Earth').position,
+    universe.get_planet('Mars').position,
+    time_steps
+)
+prog.SetInitialGuess(state, state_guess)
 
 
-states = []
-thrusts = []
+# velocity limits, for all t:
+# two norm of the rocket velocity
+# lower or equal to the rocket velocity_limit
 
-for i in range(time_steps):
+for t in range(time_steps):
+  prog.AddConstraint(state[t][2:4].dot(state[t][2:4]) <= rocket.velocity_limit**2)
 
-    curr_window = min(window, time_steps-i)
-    print("ITER", i, "OF", time_steps, "WINDOW", curr_window, "REMAINING", time_steps-curr_window-i)
+# avoid collision with asteroids, for all t, for all asteroids:
+# two norm of the rocket distance from the asteroid
+# greater or equal to the asteroid orbit
 
-    # start at previous state, compute over window
-    if i == 0:
-        thrust_window, state_window = create_prog_for_window(curr_window, None, i, time_steps, is_initial=True)
-        states.append(state_window[0])
-        # print(states[0])
-    elif curr_window < window: # in final approach
-        thrust_window, state_window = create_prog_for_window(curr_window, states[-1], i, time_steps, in_final=True)
-    else:
-        thrust_window, state_window = create_prog_for_window(curr_window, states[-1], i, time_steps)
+for t in range(time_steps):
+  for a in asteroids:
+    d = universe.position_wrt_planet(state[t], a.name)
+    prog.AddConstraint(d.dot(d) >= a.orbit**2)
 
-    states.append(state_window[1])
-    thrusts.append(thrust_window[0])
+# thrust limits, for all t:
+# two norm of the rocket thrust
+# lower or equal to the rocket thrust_limit
+for t in range(time_steps):
+  prog.AddConstraint(thrust[t].dot(thrust[t]) <= rocket.thrust_limit**2)
 
-# state_opt = np.array(state_window)
-# thrust_opt = np.array(thrust_window)
-state_opt = np.array(states)
-thrust_opt = np.array(thrusts)
+# minimize fuel consumption, for all t:
+# add to the objective the two norm squared of the thrust
+# multiplied by the time_interval so that the optimal cost
+# approximates the time integral of the thrust squared
+
+prog.AddCost(time_interval * sum(t.dot(t) for t in thrust))
+
+
+
+
+# solve mathematical program
+# solver = SnoptSolver()
+# result = solver.Solve(prog)
+
+# be sure that the solution is optimal
+# assert result.is_success()
+
+# retrieve optimal solution
+# thrust_opt = result.GetSolution(thrust)
+# state_opt = result.GetSolution(state)
 
 # compute fuel consumption for the optimal trajectory
-def fuel_consumption(thrust, time_interval):
-    return time_interval * sum(t.dot(t) for t in thrust)
-print(f'Is fuel consumption {fuel_consumption(thrust_opt, time_interval)} lower than 250?')
+# def fuel_consumption(thrust, time_interval):
+#     return time_interval * sum(t.dot(t) for t in thrust)
+# print(f'Is fuel consumption {fuel_consumption(thrust_opt, time_interval)} lower than 250?')
 
-print("IMPORTED")
 
+# plt.figure()
+# plot_state_trajectory(state_opt, universe)
+# plt.show()
+
+# plt.figure()
+# plot_rocket_limits(rocket, thrust_opt, state_opt)
+# plt.show()
+
+
+def plot_bodies():
+    for planet in universe.planets:
+
+        # plot planets
+        plt.scatter(*planet.position, s=100, c=planet.color)
+        plt.text(*planet.position, planet.name)
+
+        # plot orbits
+        if not np.isnan(planet.orbit):
+            if planet.name == 'Asteroid_1':
+                orbit_label = 'Asteroid danger area'
+            elif planet.name[:8] == 'Asteroid':
+                orbit_label = None
+            else:
+                orbit_label = planet.name + ' orbit'
+            plot_circle(
+                planet.position,
+                planet.orbit,
+                label=orbit_label,
+                color=planet.color,
+                linestyle='--'
+            )
+
+    # misc settings
+    length_unit = unit_converter['length'](1)
+    plt.xlabel('{:.0e} meters'.format(length_unit))
+    plt.ylabel('{:.0e} meters'.format(length_unit))
+    plt.grid(True)
+    plt.gca().set_aspect('equal')
+
+    # legend
+    n_legend = len(plt.gca().get_legend_handles_labels()[0])
+    plt.legend(
+        loc='upper center',
+        ncol=int(n_legend / 2),
+        bbox_to_anchor=(.5, 1.25),
+        fancybox=True,
+        shadow=True
+    )
+    plt.show()
 
 plt.figure()
-plot_state_trajectory(state_opt, universe)
-
-plt.figure()
-plot_rocket_limits(rocket, thrust_opt, state_opt)
+plot_bodies()
+plt.show
