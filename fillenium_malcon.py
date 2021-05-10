@@ -133,6 +133,17 @@ class Asteroid(Planet):
         self.radius = unit_converter['length'](radius)
         self.orbit = unit_converter['length'](orbit)
         self.color = color
+        self.uncertainty = 1.05
+
+    def get_orbit(self, time_step):
+        return self.orbit*self.uncertainty**time_step
+
+    def move_step(self):
+        # move asteroid somewhere in self.get_orbit(1)
+        diff = self.get_orbit(1) - self.orbit
+        movex = np.random.randn()*diff # move anywhere between -diff and diff
+        movey = np.random.randn()*diff
+        self.position += np.array([movex, movey])
 
 # asteroids with random data in random positions
 np.random.seed(3) # or 0
@@ -516,7 +527,7 @@ def create_prog_for_window(window, start_state, step, total, is_initial=False, i
     for t in range(window):
       for a in asteroids:
         d = universe.position_wrt_planet(state[t], a.name)
-        prog.AddConstraint(d.dot(d) >= a.orbit**2)
+        prog.AddConstraint(d.dot(d) >= a.get_orbit(t)**2)
 
     # thrust limits, for all t:
     # two norm of the rocket thrust
@@ -578,6 +589,9 @@ for i in range(time_steps):
 
     states.append(state_window[1])
     thrusts.append(thrust_window[0])
+
+    for asteroid in asteroids:
+        asteroid.move_step()
 
 # state_opt = np.array(state_window)
 # thrust_opt = np.array(thrust_window)
