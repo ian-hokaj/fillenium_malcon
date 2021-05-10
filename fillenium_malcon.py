@@ -114,8 +114,28 @@ mars = Planet(
     3.389e6,     # radius in m
 )
 
+class Asteroid(Planet):
+
+    def __init__(
+        self,
+        name,          # string with the name of the planet
+        color,         # color of the planet for plots
+        mass,          # mass of the planet in kg
+        position,      # position of the planet in the 2d universe in m
+        orbit,         # radius of the orbit in m
+        radius=np.nan, # radius of the planet in m (optional)
+    ):
+
+        # store the data using the scaled units
+        self.name = name
+        self.mass = unit_converter['mass'](mass)
+        self.position = unit_converter['length'](position)
+        self.radius = unit_converter['length'](radius)
+        self.orbit = unit_converter['length'](orbit)
+        self.color = color
+
 # asteroids with random data in random positions
-np.random.seed(3)
+np.random.seed(3) # or 0
 n_asteroids = 10
 # n_asteroids = 25 #DEBUG
 asteroids = []
@@ -125,7 +145,7 @@ for i in range(n_asteroids):
     earth_from_mars = unit_converter['length'](earth.position, -1)
     asteroid_from_mars = np.random.randn(2) * 3e10 + earth_from_mars / 2
     asteroids.append(
-        Planet(
+        Asteroid(
             f'Asteroid_{i}',    # name of the planet
             'brown',            # color for plot
             mass,               # mass in kg
@@ -522,7 +542,7 @@ def create_prog_for_window(window, start_state, step, total, is_initial=False, i
     result = solver.Solve(prog)
 
     # be sure that the solution is optimal
-    # print(result.is_success())
+    # assert result.is_success()
 
     # retrieve optimal solution
     thrust_window = result.GetSolution(thrust)
@@ -534,7 +554,7 @@ def create_prog_for_window(window, start_state, step, total, is_initial=False, i
 # numeric parameters
 time_interval = .5 # in years
 time_steps = 100
-window = 25 # time steps per calculation
+window = 15 # time steps per calculation
 # Earth state: [ 2.32035322  0.18721759 -0.04109043  0.01544109]
 
 
