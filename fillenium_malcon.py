@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 # pydrake imports
 from pydrake.all import (Variable, SymbolicVectorSystem, DiagramBuilder,
                          LogOutput, Simulator, ConstantVectorSource,
-                         MathematicalProgram, Solve, SnoptSolver, PiecewisePolynomial)
+                         MathematicalProgram, Solve, SnoptSolver, PiecewisePolynomial, eq)
 
 # increase default size matplotlib figures
 from matplotlib import rcParams
@@ -115,11 +115,11 @@ mars = Planet(
 )
 
 # asteroids with random data in random positions
-np.random.seed(0)
+np.random.seed(3)
 n_asteroids = 10
 asteroids = []
 for i in range(n_asteroids):
-    mass = np.abs(np.random.randn()) * 5e22
+    mass = np.abs(np.random.randn()) * 2e22 #5e22
     orbit = mass / 5e12
     earth_from_mars = unit_converter['length'](earth.position, -1)
     asteroid_from_mars = np.random.randn(2) * 3e10 + earth_from_mars / 2
@@ -129,7 +129,7 @@ for i in range(n_asteroids):
             'brown',            # color for plot
             mass,               # mass in kg
             asteroid_from_mars, # distance from Mars in m
-            mass / 5e12,        # radius danger area in m
+            orbit,        # radius danger area in m
         )
     )
 
@@ -404,7 +404,7 @@ def interpolate_rocket_state(p_initial, p_final, time_steps):
 
     # sample state on the time grid and add small random noise
     state_guess = np.vstack([state.value(t * time_interval).T for t in range(time_steps + 1)])
-    state_guess += np.random.rand(*state_guess.shape) * 5e-6
+    # state_guess += np.random.rand(*state_guess.shape) * 5e-6
 
     return state_guess
 
@@ -419,7 +419,7 @@ def rollout(state, thrust, time_steps, time_interval):
     return final_state
 
 
-def create_prog_for_window(window, start_state, remaining_window, is_initial=False, in_final=False):
+def create_prog_for_window(window, start_state, step, total, is_initial=False, in_final=False):
     # initialize optimization
     prog = MathematicalProgram()
 
@@ -432,10 +432,7 @@ def create_prog_for_window(window, start_state, remaining_window, is_initial=Fal
         for residual in universe.constraint_state_to_orbit(state[0], 'Earth'):
             prog.AddConstraint(residual == 0)
     else:
-        prog.AddLinearConstraint(state[0,0] == start_state[0])
-        prog.AddLinearConstraint(state[0,1] == start_state[1])
-        prog.AddLinearConstraint(state[0,2] == start_state[2])
-        prog.AddLinearConstraint(state[0,3] == start_state[3])
+        prog.AddConstraint(eq(state[0], start_state))
 
 
     # terminal orbit constraints
@@ -454,23 +451,23 @@ def create_prog_for_window(window, start_state, remaining_window, is_initial=Fal
         state_guess = interpolate_rocket_state(
             universe.get_planet('Earth').position,
             universe.get_planet('Mars').position,
-            window
-        )
+            total
+        )[0:window+1]
     else:
         state_guess = interpolate_rocket_state(
             start_state[0:2],
             universe.get_planet('Mars').position,
-            window
-        )
+            total-step
+        )[0:window+1]
     prog.SetInitialGuess(state, state_guess)
 
-    # get closer to mars over this window
-    if not in_final:
-        p1 = universe.position_wrt_planet(state[0], 'Mars')
-        d1 = p1.dot(p1) ** .5
-        p2 = universe.position_wrt_planet(state[-1], 'Mars')
-        d2 = p2.dot(p2) ** .5
-        prog.AddConstraint(d2 * 1.05 <= d1)
+    # # get closer to mars over this window
+    # if not in_final:
+    #     p1 = universe.position_wrt_planet(state[0], 'Mars')
+    #     d1 = p1.dot(p1) ** .5
+    #     p2 = universe.position_wrt_planet(state[-1], 'Mars')
+    #     d2 = p2.dot(p2) ** .5
+    #     prog.AddConstraint(d2 * 1.05 <= d1)
 
     # velocity limits, for all t:
     # two norm of the rocket velocity
@@ -492,12 +489,11 @@ def create_prog_for_window(window, start_state, remaining_window, is_initial=Fal
     for t in range(window):
       prog.AddConstraint(thrust[t].dot(thrust[t]) <= rocket.thrust_limit**2)
 
-
-    # # rollout dynamics (recursive feasibility) constraint
-    # final_state = rollout(state[-1], thrust[-1], remaining_window, time_interval)
-    # for residual in universe.constraint_state_to_orbit(final_state, 'Mars'):
-    #     prog.AddConstraint(residual == 0)
-
+    # rollout dynamics (recursive feasibility) constraint
+    if not in_final:
+        final_state = rollout(state[-1], thrust[-1], total-window-step, time_interval)
+        for residual in universe.constraint_state_to_orbit(final_state, 'Mars'):
+            prog.AddConstraint(residual == 0)
 
     # minimize fuel consumption, for all t:
     # add to the objective the two norm squared of the thrust
@@ -511,7 +507,7 @@ def create_prog_for_window(window, start_state, remaining_window, is_initial=Fal
     result = solver.Solve(prog)
 
     # be sure that the solution is optimal
-    # assert result.is_success()
+    # print(result.is_success())
 
     # retrieve optimal solution
     thrust_window = result.GetSolution(thrust)
@@ -533,22 +529,20 @@ thrusts = []
 for i in range(time_steps):
 
     curr_window = min(window, time_steps-i)
-    print("ITER", i, "OF", time_steps, "WINDOW", curr_window)
+    print("ITER", i, "OF", time_steps, "WINDOW", curr_window, "REMAINING", time_steps-curr_window-i)
 
     # start at previous state, compute over window
     if i == 0:
-        thrust_window, state_window = create_prog_for_window(curr_window, None, time_steps - i, is_initial=True)
+        thrust_window, state_window = create_prog_for_window(curr_window, None, i, time_steps, is_initial=True)
         states.append(state_window[0])
         # print(states[0])
     elif curr_window < window: # in final approach
-        thrust_window, state_window = create_prog_for_window(curr_window, states[-1], time_steps - i, in_final=True)
+        thrust_window, state_window = create_prog_for_window(curr_window, states[-1], i, time_steps, in_final=True)
     else:
-        thrust_window, state_window = create_prog_for_window(curr_window, states[-1], time_steps - i)
+        thrust_window, state_window = create_prog_for_window(curr_window, states[-1], i, time_steps)
 
-    thrust_step = thrust_window[0]
-    state_step = state_window[1]
-    states.append(state_step)
-    thrusts.append(thrust_step)
+    states.append(state_window[1])
+    thrusts.append(thrust_window[0])
 
 # state_opt = np.array(state_window)
 # thrust_opt = np.array(thrust_window)
