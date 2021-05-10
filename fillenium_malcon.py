@@ -17,6 +17,7 @@ import sys
 # python libraries
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 
 # pydrake imports
 from pydrake.all import (Variable, SymbolicVectorSystem, DiagramBuilder,
@@ -369,10 +370,6 @@ def plot_state_trajectory(trajectory, universe):
                 linestyle='--'
             )
 
-    # plot rocket trajectory
-    plt.plot(trajectory.T[0], trajectory.T[1], color='k', label='Rocket trajectory')
-    plt.scatter(trajectory[0,0], trajectory[0,1], color='k')
-
     # misc settings
     length_unit = unit_converter['length'](1)
     plt.xlabel('{:.0e} meters'.format(length_unit))
@@ -389,6 +386,22 @@ def plot_state_trajectory(trajectory, universe):
         fancybox=True,
         shadow=True
     )
+
+    ### UNCOMMENT TO PLOT OUTPUT TRAJECTORY ###
+    # plot rocket trajectory
+    # plt.plot(trajectory.T[0], trajectory.T[1], color='k', label='Rocket trajectory')
+    # plt.scatter(trajectory[0,0], trajectory[0,1], color='k')
+
+    ### COMMENT THIS TO REVERT ###
+    x = trajectory.T[0]
+    y = trajectory.T[1]
+    line, = ax.plot(x, y, color='k', label='Rocket trajectory')
+    def update(num, x, y, line):
+        line.set_data(x[:num], y[:num])
+        return line,
+    ani = animation.FuncAnimation(fig, update, len(x), fargs=[x, y, line],
+                              interval=10, blit=True)
+    ### END HERE ###
     plt.show()
 
 # function that plots the norm of the rocket thrust and
@@ -572,6 +585,8 @@ window = 15 # time steps per calculation
 states = []
 thrusts = []
 
+iter_states = []
+
 for i in range(time_steps):
 
     curr_window = min(window, time_steps-i)
@@ -593,10 +608,17 @@ for i in range(time_steps):
     for asteroid in asteroids:
         asteroid.move_step()
 
+
+    iter_states.append(state_window)
+
 # state_opt = np.array(state_window)
 # thrust_opt = np.array(thrust_window)
 state_opt = np.array(states)
 thrust_opt = np.array(thrusts)
+state_all = np.array(iter_states[0])
+
+for i in range(time_steps-1):
+    state_all = np.vstack((state_all, iter_states[i+1]))
 
 # compute fuel consumption for the optimal trajectory
 def fuel_consumption(thrust, time_interval):
@@ -605,9 +627,11 @@ print(f'Is fuel consumption {fuel_consumption(thrust_opt, time_interval)} lower 
 
 print("IMPORTED")
 
+# plt.figure()
+# plot_state_trajectory(state_opt, universe)
+fig, ax = plt.subplots()
+plot_state_trajectory(state_all, universe)
 
-plt.figure()
-plot_state_trajectory(state_opt, universe)
 
-plt.figure()
-plot_rocket_limits(rocket, thrust_opt, state_opt)
+# plt.figure()
+# plot_rocket_limits(rocket, thrust_opt, state_opt)
