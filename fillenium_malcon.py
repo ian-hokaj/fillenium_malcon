@@ -136,6 +136,7 @@ class Asteroid(Planet):
         self.orbit = unit_converter['length'](orbit)
         self.color = color
         self.uncertainty = 1.05
+        diff = self.get_orbit(1) - self.orbit
         self.movex = np.random.randn()*diff
         self.movey = np.random.randn()*diff
 
@@ -146,9 +147,9 @@ class Asteroid(Planet):
         # move asteroid somewhere in self.get_orbit(1)
         diff = self.get_orbit(1) - self.orbit
         # favor past movement
-        self.movex = .75*self.movex + .25*np.random.randn()*diff # move anywhere between -diff and diff
-        self.movey = .75*self.movey + .25*np.random.randn()*diff
-        self.position += np.array([self.movex, self.movey])
+        movex = .9*self.movex + .1*np.random.randn()*diff # move anywhere between -diff and diff
+        movey = .9*self.movey + .1*np.random.randn()*diff
+        self.position += np.array([movex, movey])
 
 # asteroids with random data in random positions
 np.random.seed(3) # or 0
