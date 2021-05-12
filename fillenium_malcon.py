@@ -149,7 +149,7 @@ class Asteroid(Planet):
 
 # asteroids with random data in random positions
 np.random.seed(3) # or 0
-n_asteroids = 10
+n_asteroids = 20
 # n_asteroids = 25 #DEBUG
 asteroids = []
 for i in range(n_asteroids):
@@ -543,7 +543,7 @@ def plot_state_trajectory_movement(states, asteroids_over_time, universe):
 # function that interpolates two given positions of the rocket
 # velocity is set to zero for all the times
 def interpolate_rocket_state(p_initial, p_final, time_steps):
-    np.random.seed(0)
+    # np.random.seed(0)
 
     # initial and final time and state
     time_limits = [0., time_steps * time_interval]
@@ -583,7 +583,7 @@ def rollout(state, thrust, time_steps, time_interval):
 #     return final_state
 
 
-def create_prog_for_window(window, start_state, step, total, is_initial=False, in_final=False):
+def create_prog_for_window(window, start_state, step, total, guess=[], is_initial=False, in_final=False):
     # initialize optimization
     prog = MathematicalProgram()
 
@@ -594,21 +594,25 @@ def create_prog_for_window(window, start_state, step, total, is_initial=False, i
     # initial orbit constraints
     if is_initial:
         for residual in universe.constraint_state_to_orbit(state[0], 'Earth'):
-            prog.AddConstraint(residual == 0)
+            c = prog.AddConstraint(residual == 0)
+            c.evaluator().set_description("start in earth orbit")
     else:
-        prog.AddConstraint(eq(state[0], start_state))
+        c = prog.AddConstraint(eq(state[0], start_state))
+        c.evaluator().set_description("start at last state")
 
 
     # terminal orbit constraints
     if in_final:
         for residual in universe.constraint_state_to_orbit(state[-1], 'Mars'):
-            prog.AddConstraint(residual == 0)
+            c = prog.AddConstraint(residual == 0)
+            c.evaluator().set_description("end in mars orbit")
 
     # discretized dynamics
     for t in range(window):
         residuals = universe.rocket_discrete_dynamics(state[t], state[t+1], thrust[t], time_interval)
         for residual in residuals:
-            prog.AddConstraint(residual == 0)
+            c = prog.AddConstraint(residual == 0)
+            c.evaluator().set_description("dynamics")
 
     # initial guess
     if is_initial:
@@ -618,11 +622,12 @@ def create_prog_for_window(window, start_state, step, total, is_initial=False, i
             total
         )[0:window+1]
     else:
-        state_guess = interpolate_rocket_state(
-            start_state[0:2],
-            universe.get_planet('Mars').position,
-            total-step
-        )[0:window+1]
+        state_guess = guess[:window+1]
+        # state_guess = interpolate_rocket_state(
+        #     start_state[0:2],
+        #     universe.get_planet('Mars').position,
+        #     total-step
+        # )[0:window+1]
     prog.SetInitialGuess(state, state_guess)
 
     # # get closer to mars over this window
@@ -637,7 +642,8 @@ def create_prog_for_window(window, start_state, step, total, is_initial=False, i
     # two norm of the rocket velocity
     # lower or equal to the rocket velocity_limit
     for t in range(window):
-      prog.AddConstraint(state[t][2:4].dot(state[t][2:4]) <= rocket.velocity_limit**2)
+      c = prog.AddConstraint(state[t][2:4].dot(state[t][2:4]) <= rocket.velocity_limit**2)
+      c.evaluator().set_description("velocity limits")
 
     # avoid collision with asteroids, for all t, for all asteroids:
     # two norm of the rocket distance from the asteroid
@@ -645,19 +651,22 @@ def create_prog_for_window(window, start_state, step, total, is_initial=False, i
     for t in range(window):
       for a in asteroids:
         d = universe.position_wrt_planet(state[t], a.name)
-        prog.AddConstraint(d.dot(d) >= a.get_orbit(t)**2)
+        c = prog.AddConstraint(d.dot(d) >= a.get_orbit(t)**2)
+        c.evaluator().set_description("asteroid collision")
 
     # thrust limits, for all t:
     # two norm of the rocket thrust
     # lower or equal to the rocket thrust_limit
     for t in range(window):
-      prog.AddConstraint(thrust[t].dot(thrust[t]) <= rocket.thrust_limit**2)
+      c = prog.AddConstraint(thrust[t].dot(thrust[t]) <= rocket.thrust_limit**2)
+      c.evaluator().set_description("thrust constraints")
 
     # rollout dynamics (recursive feasibility) constraint
     if not in_final:
         final_state = rollout(state[-1], thrust[-1], total-window-step, time_interval)
         for residual in universe.constraint_state_to_orbit(final_state, 'Mars'):
-            prog.AddConstraint(residual == 0)
+            c = prog.AddConstraint(residual == 0)
+            c.evaluator().set_description("rollout to mars")
 
     # minimize fuel consumption, for all t:
     # add to the objective the two norm squared of the thrust
@@ -671,7 +680,9 @@ def create_prog_for_window(window, start_state, step, total, is_initial=False, i
     result = solver.Solve(prog)
 
     # be sure that the solution is optimal
-    # assert result.is_success()
+    if not result.is_success():
+        for constraint in result.GetInfeasibleConstraints(prog):
+            print("violation:", constraint)
 
     # retrieve optimal solution
     thrust_window = result.GetSolution(thrust)
@@ -693,6 +704,8 @@ asteroids_movements = []
 
 iter_states = []
 
+next_guess = []
+
 for i in range(time_steps):
 
     curr_window = min(window, time_steps-i)
@@ -704,9 +717,13 @@ for i in range(time_steps):
         states.append(state_window[0])
         # print(states[0])
     elif curr_window < window: # in final approach
-        thrust_window, state_window = create_prog_for_window(curr_window, states[-1], i, time_steps, in_final=True)
+        thrust_window, state_window = create_prog_for_window(curr_window, states[-1], i, time_steps, guess=next_guess, in_final=True)
     else:
-        thrust_window, state_window = create_prog_for_window(curr_window, states[-1], i, time_steps)
+        thrust_window, state_window = create_prog_for_window(curr_window, states[-1], i, time_steps, guess=next_guess)
+
+    next_guess = state_window[1:]
+    next_state = universe.rocket_continuous_dynamics(next_guess[-1], thrust_window[-1])
+    next_guess = np.vstack((next_guess, next_state))
 
     states.append(state_window[1])
     thrusts.append(thrust_window[0])
