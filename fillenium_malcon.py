@@ -18,6 +18,7 @@ import sys
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import copy
 
 # pydrake imports
 from pydrake.all import (Variable, SymbolicVectorSystem, DiagramBuilder,
@@ -435,6 +436,110 @@ def plot_rocket_limits(rocket, thrust, state):
     plt.show()
 
 
+# function that plots overall trajectories with movement
+def plot_state_trajectory_movement(states, asteroids_over_time, universe):
+
+    for planet in [earth, mars]:
+
+        # plot planets
+        plt.scatter(*planet.position, s=100, c=planet.color)
+        plt.text(*planet.position, planet.name)
+
+        # plot orbits
+        if not np.isnan(planet.orbit):
+            if planet.name == 'Asteroid_1':
+                orbit_label = 'Asteroid danger area'
+            elif planet.name[:8] == 'Asteroid':
+                orbit_label = None
+            else:
+                orbit_label = planet.name + ' orbit'
+            plot_circle(
+                planet.position,
+                planet.orbit,
+                label=orbit_label,
+                color=planet.color,
+                linestyle='--'
+            )
+
+    # misc settings
+    length_unit = unit_converter['length'](1)
+    plt.xlabel('{:.0e} meters'.format(length_unit))
+    plt.ylabel('{:.0e} meters'.format(length_unit))
+    plt.grid(True)
+    plt.gca().set_aspect('equal')
+
+    # legend
+    n_legend = len(plt.gca().get_legend_handles_labels()[0])
+    plt.legend(
+        loc='upper center',
+        ncol=int(n_legend / 2),
+        bbox_to_anchor=(.5, 1.25),
+        fancybox=True,
+        shadow=True
+    )
+
+    # for asteroids_at_time in asteroids_over_time[0:1]:
+    #     for asteroid in asteroids_at_time:
+    #         # plot planets
+    #         plt.scatter(*asteroid.position, s=100, c=asteroid.color)
+    #         plt.text(*asteroid.position, asteroid.name)
+    #
+    #         # plot orbits
+    #         if not np.isnan(asteroid.orbit):
+    #             if asteroid.name == 'Asteroid_1':
+    #                 orbit_label = 'Asteroid danger area'
+    #             elif asteroid.name[:8] == 'Asteroid':
+    #                 orbit_label = None
+    #             else:
+    #                 orbit_label = asteroid.name + ' orbit'
+    #             plot_circle(
+    #                 asteroid.position,
+    #                 asteroid.orbit,
+    #                 label=orbit_label,
+    #                 color=planet.color,
+    #                 linestyle='--'
+    #             )
+    # angle = np.linspace(0, 2*np.pi)
+    #
+    # # plot circle
+    # plt.plot(
+    #     center[0] + radius * np.cos(angle),
+    #     center[1] + radius * np.sin(angle),
+    #     *args,
+    #     **kwargs
+    # )
+
+    x = states.T[0]
+    y = states.T[1]
+    line, = ax.plot(x, y, color='k', label='Rocket trajectory')
+
+    orbit_dict = {a.name: plt.Circle((a.position[0], a.position[1]), a.orbit, ec='r', fill=False) for a in asteroids_over_time[0]}
+
+    for v in orbit_dict.values():
+        ax.add_patch(v)
+
+    asteroid_x = [a.position[0] for a in asteroids_over_time[0]]
+    asteroid_y = [a.position[1] for a in asteroids_over_time[0]]
+    scat = ax.scatter(asteroid_x, asteroid_y)
+
+
+    def update(num, x, y, line, scat):
+        line.set_data(x[:num], y[:num])
+        asteroid_x = np.array([a.position[0] for a in asteroids_over_time[num]])
+        asteroid_y = np.array([a.position[1] for a in asteroids_over_time[num]])
+        asteroids_pos = np.vstack((asteroid_x, asteroid_y))
+        scat.set_offsets(asteroids_pos.T)
+        for a in asteroids_over_time[num]:
+            orbit_dict[a.name].center = (a.position[0], a.position[1])
+        ret = [line, scat] + [v for v in orbit_dict.values()]
+        return ret
+
+    ani = animation.FuncAnimation(fig, update, len(x), fargs=[x, y, line, scat],
+                              interval=10, blit=True)
+    ### END HERE ###
+    plt.show()
+
+
 # function that interpolates two given positions of the rocket
 # velocity is set to zero for all the times
 def interpolate_rocket_state(p_initial, p_final, time_steps):
@@ -584,6 +689,7 @@ window = 15 # time steps per calculation
 
 states = []
 thrusts = []
+asteroids_movements = []
 
 iter_states = []
 
@@ -604,17 +710,20 @@ for i in range(time_steps):
 
     states.append(state_window[1])
     thrusts.append(thrust_window[0])
+    asteroids_movements.append([copy.deepcopy(a) for a in asteroids])
 
     for asteroid in asteroids:
         asteroid.move_step()
 
-
     iter_states.append(state_window)
+
+asteroids_movements.append([copy.deepcopy(a) for a in asteroids])
 
 # state_opt = np.array(state_window)
 # thrust_opt = np.array(thrust_window)
 state_opt = np.array(states)
 thrust_opt = np.array(thrusts)
+asteroids_movements = np.array(asteroids_movements)
 state_all = np.array(iter_states[0])
 
 for i in range(time_steps-1):
@@ -625,13 +734,15 @@ def fuel_consumption(thrust, time_interval):
     return time_interval * sum(t.dot(t) for t in thrust)
 print(f'Is fuel consumption {fuel_consumption(thrust_opt, time_interval)} lower than 250?')
 
-print("IMPORTED")
-
 # plt.figure()
 # plot_state_trajectory(state_opt, universe)
 fig, ax = plt.subplots()
 plot_state_trajectory(state_all, universe)
 
+# plot overall movement
+fig, ax = plt.subplots()
+plot_state_trajectory_movement(state_opt, asteroids_movements, universe)
 
-# plt.figure()
-# plot_rocket_limits(rocket, thrust_opt, state_opt)
+# plot limits
+plt.figure()
+plot_rocket_limits(rocket, thrust_opt, state_opt)
