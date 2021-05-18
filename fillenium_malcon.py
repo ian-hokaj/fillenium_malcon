@@ -135,7 +135,7 @@ class Asteroid(Planet):
         self.radius = unit_converter['length'](radius)
         self.orbit = unit_converter['length'](orbit)
         self.color = color
-        self.uncertainty = 1.03
+        self.uncertainty = np.random.rand()*.04+1.01 # between 1.01 and 1.05
         diff = self.get_orbit(1) - self.orbit
         self.movex = np.random.randn()*diff
         self.movey = np.random.randn()*diff
@@ -514,7 +514,7 @@ def plot_state_trajectory_movement(states, asteroids_over_time, universe):
 
 
 # function that plots overall trajectories with movement
-def plot_single_window_visual(states, asteroids_at_window, universe):
+def plot_single_window_visual(states, universe):
 
     for planet in [earth, mars]:
 
@@ -559,19 +559,19 @@ def plot_single_window_visual(states, asteroids_at_window, universe):
     y = states.T[1]
     line, = ax.plot(x, y, color='k', label='Rocket trajectory')
 
-    orbit_dict = {a.name: plt.Circle((a.position[0], a.position[1]), a.orbit, ec='r', fill=False) for a in asteroids_at_window}
+    orbit_dict = {a.name: plt.Circle((a.position[0], a.position[1]), a.orbit, ec='r', fill=False) for a in asteroids}
 
     for v in orbit_dict.values():
         ax.add_patch(v)
 
-    asteroid_x = [a.position[0] for a in asteroids_at_window]
-    asteroid_y = [a.position[1] for a in asteroids_at_window]
+    asteroid_x = [a.position[0] for a in asteroids]
+    asteroid_y = [a.position[1] for a in asteroids]
     scat = ax.scatter(asteroid_x, asteroid_y)
 
 
     def update(num, x, y, line, scat):
         line.set_data(x[:num], y[:num])
-        for a in asteroids_at_window:
+        for a in asteroids:
             orbit_dict[a.name].radius = a.get_orbit(num)
         ret = [line, scat] + [v for v in orbit_dict.values()]
         return ret
@@ -640,7 +640,7 @@ def create_prog_for_window(window, start_state, step, total, guess=[], is_initia
             c.evaluator().set_description("start in earth orbit")
     else:
         c = prog.AddConstraint(eq(state[0], start_state))
-        c.evaluator().set_description("start at last state")
+        c.evaluator().set_description("start at prev state")
 
 
     # terminal orbit constraints
@@ -659,26 +659,13 @@ def create_prog_for_window(window, start_state, step, total, guess=[], is_initia
     # initial guess
     if is_initial:
         state_guess = interpolate_rocket_state(
-            universe.get_planet('Earth').position,
-            universe.get_planet('Mars').position,
+            universe.get_planet('Earth').position + np.array([-np.sin(np.deg2rad(70))*universe.get_planet('Earth').orbit, np.sin(np.deg2rad(20))*universe.get_planet('Earth').orbit]),
+            universe.get_planet('Mars').position + np.array([ universe.get_planet('Mars').orbit, 0]),
             total
         )[0:window+1]
     else:
         state_guess = guess[:window+1]
-        # state_guess = interpolate_rocket_state(
-        #     start_state[0:2],
-        #     universe.get_planet('Mars').position,
-        #     total-step
-        # )[0:window+1]
     prog.SetInitialGuess(state, state_guess)
-
-    # # get closer to mars over this window
-    # if not in_final:
-    #     p1 = universe.position_wrt_planet(state[0], 'Mars')
-    #     d1 = p1.dot(p1) ** .5
-    #     p2 = universe.position_wrt_planet(state[-1], 'Mars')
-    #     d2 = p2.dot(p2) ** .5
-    #     prog.AddConstraint(d2 * 1.05 <= d1)
 
     # velocity limits, for all t:
     # two norm of the rocket velocity
@@ -724,7 +711,14 @@ def create_prog_for_window(window, start_state, step, total, guess=[], is_initia
     # be sure that the solution is optimal
     if not result.is_success():
         for constraint in result.GetInfeasibleConstraints(prog):
-            print("violation:", constraint)
+            msg = str(constraint)
+            type = msg.split("described as")[-1].split("\'")[1]
+            iters = set([int(s.split(")")[0].split(",")[0]) for s in msg.split("variables")[-1].strip(" ").split("(")[1:]])
+            for iter in iters:
+                if iter == 0:
+                    print("VIOLATION", type, iter)
+                # else:
+                #     print("violation", type, iter)
 
     # retrieve optimal solution
     thrust_window = result.GetSolution(thrust)
@@ -766,7 +760,7 @@ for i in range(time_steps):
 
     if i % 10 == 0:
         fig, ax = plt.subplots()
-        plot_single_window_visual(state_window, asteroids_movements[-1], universe)
+        plot_single_window_visual(state_window, universe)
 
     next_guess = state_window[1:]
     next_state = universe.rocket_continuous_dynamics(next_guess[-1], thrust_window[-1])
