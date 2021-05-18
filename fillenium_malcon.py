@@ -135,7 +135,7 @@ class Asteroid(Planet):
         self.radius = unit_converter['length'](radius)
         self.orbit = unit_converter['length'](orbit)
         self.color = color
-        self.uncertainty = 1.05
+        self.uncertainty = 1.03
         diff = self.get_orbit(1) - self.orbit
         self.movex = np.random.randn()*diff
         self.movey = np.random.randn()*diff
@@ -482,37 +482,6 @@ def plot_state_trajectory_movement(states, asteroids_over_time, universe):
         shadow=True
     )
 
-    # for asteroids_at_time in asteroids_over_time[0:1]:
-    #     for asteroid in asteroids_at_time:
-    #         # plot planets
-    #         plt.scatter(*asteroid.position, s=100, c=asteroid.color)
-    #         plt.text(*asteroid.position, asteroid.name)
-    #
-    #         # plot orbits
-    #         if not np.isnan(asteroid.orbit):
-    #             if asteroid.name == 'Asteroid_1':
-    #                 orbit_label = 'Asteroid danger area'
-    #             elif asteroid.name[:8] == 'Asteroid':
-    #                 orbit_label = None
-    #             else:
-    #                 orbit_label = asteroid.name + ' orbit'
-    #             plot_circle(
-    #                 asteroid.position,
-    #                 asteroid.orbit,
-    #                 label=orbit_label,
-    #                 color=planet.color,
-    #                 linestyle='--'
-    #             )
-    # angle = np.linspace(0, 2*np.pi)
-    #
-    # # plot circle
-    # plt.plot(
-    #     center[0] + radius * np.cos(angle),
-    #     center[1] + radius * np.sin(angle),
-    #     *args,
-    #     **kwargs
-    # )
-
     x = states.T[0]
     y = states.T[1]
     line, = ax.plot(x, y, color='k', label='Rocket trajectory')
@@ -539,7 +508,76 @@ def plot_state_trajectory_movement(states, asteroids_over_time, universe):
         return ret
 
     ani = animation.FuncAnimation(fig, update, len(x), fargs=[x, y, line, scat],
-                              interval=10, blit=True)
+                              interval=20, blit=True)
+    ### END HERE ###
+    plt.show()
+
+
+# function that plots overall trajectories with movement
+def plot_single_window_visual(states, asteroids_at_window, universe):
+
+    for planet in [earth, mars]:
+
+        # plot planets
+        plt.scatter(*planet.position, s=100, c=planet.color)
+        plt.text(*planet.position, planet.name)
+
+        # plot orbits
+        if not np.isnan(planet.orbit):
+            if planet.name == 'Asteroid_1':
+                orbit_label = 'Asteroid danger area'
+            elif planet.name[:8] == 'Asteroid':
+                orbit_label = None
+            else:
+                orbit_label = planet.name + ' orbit'
+            plot_circle(
+                planet.position,
+                planet.orbit,
+                label=orbit_label,
+                color=planet.color,
+                linestyle='--'
+            )
+
+    # misc settings
+    length_unit = unit_converter['length'](1)
+    plt.xlabel('{:.0e} meters'.format(length_unit))
+    plt.ylabel('{:.0e} meters'.format(length_unit))
+    plt.grid(True)
+    plt.gca().set_aspect('equal')
+
+    # legend
+    n_legend = len(plt.gca().get_legend_handles_labels()[0])
+    plt.legend(
+        loc='upper center',
+        ncol=int(n_legend / 2),
+        bbox_to_anchor=(.5, 1.25),
+        fancybox=True,
+        shadow=True
+    )
+
+    x = states.T[0]
+    y = states.T[1]
+    line, = ax.plot(x, y, color='k', label='Rocket trajectory')
+
+    orbit_dict = {a.name: plt.Circle((a.position[0], a.position[1]), a.orbit, ec='r', fill=False) for a in asteroids_at_window}
+
+    for v in orbit_dict.values():
+        ax.add_patch(v)
+
+    asteroid_x = [a.position[0] for a in asteroids_at_window]
+    asteroid_y = [a.position[1] for a in asteroids_at_window]
+    scat = ax.scatter(asteroid_x, asteroid_y)
+
+
+    def update(num, x, y, line, scat):
+        line.set_data(x[:num], y[:num])
+        for a in asteroids_at_window:
+            orbit_dict[a.name].radius = a.get_orbit(num)
+        ret = [line, scat] + [v for v in orbit_dict.values()]
+        return ret
+
+    ani = animation.FuncAnimation(fig, update, len(x), fargs=[x, y, line, scat],
+                              interval=100, blit=True)
     ### END HERE ###
     plt.show()
 
@@ -705,6 +743,7 @@ window = 15 # time steps per calculation
 states = []
 thrusts = []
 asteroids_movements = []
+asteroids_movements.append([copy.deepcopy(a) for a in asteroids])
 
 iter_states = []
 
@@ -725,6 +764,10 @@ for i in range(time_steps):
     else:
         thrust_window, state_window = create_prog_for_window(curr_window, states[-1], i, time_steps, guess=next_guess)
 
+    if i % 10 == 0:
+        fig, ax = plt.subplots()
+        plot_single_window_visual(state_window, asteroids_movements[-1], universe)
+
     next_guess = state_window[1:]
     next_state = universe.rocket_continuous_dynamics(next_guess[-1], thrust_window[-1])
     next_guess = np.vstack((next_guess, next_state))
@@ -737,8 +780,6 @@ for i in range(time_steps):
         asteroid.move_step()
 
     iter_states.append(state_window)
-
-asteroids_movements.append([copy.deepcopy(a) for a in asteroids])
 
 # state_opt = np.array(state_window)
 # thrust_opt = np.array(thrust_window)
