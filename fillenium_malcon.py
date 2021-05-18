@@ -790,6 +790,13 @@ def fuel_consumption(thrust, time_interval):
     return time_interval * sum(t.dot(t) for t in thrust)
 print(f'Is fuel consumption {fuel_consumption(thrust_opt, time_interval)} lower than 250?')
 
+# check that we follow dynamics
+for t in range(time_steps):
+    residuals = universe.rocket_discrete_dynamics(states[t], states[t+1], thrusts[t], time_interval)
+    for residual in residuals:
+        if abs(residual) > 1e-9:
+            print("VIOLATION DYNAMICS at", t, "by", residual)
+
 # plt.figure()
 # plot_state_trajectory(state_opt, universe)
 fig, ax = plt.subplots()
