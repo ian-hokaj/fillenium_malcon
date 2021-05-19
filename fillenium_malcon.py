@@ -508,13 +508,14 @@ def plot_state_trajectory_movement(states, asteroids_over_time, universe):
         return ret
 
     ani = animation.FuncAnimation(fig, update, len(x), fargs=[x, y, line, scat],
-                              interval=20, blit=True)
+                              interval=200, blit=True)
     ### END HERE ###
+    ani.save("traj.mp4")
     plt.show()
 
 
 # function that plots overall trajectories with movement
-def plot_single_window_visual(states, universe):
+def plot_single_window_visual(states, universe, step):
 
     for planet in [earth, mars]:
 
@@ -577,8 +578,10 @@ def plot_single_window_visual(states, universe):
         return ret
 
     ani = animation.FuncAnimation(fig, update, len(x), fargs=[x, y, line, scat],
-                              interval=100, blit=True)
+                              interval=200, blit=True)
     ### END HERE ###
+    name = "window " + str(step) + ".mp4"
+    ani.save(name)
     plt.show()
 
 
@@ -760,7 +763,7 @@ for i in range(time_steps):
 
     if i % 10 == 0:
         fig, ax = plt.subplots()
-        plot_single_window_visual(state_window, universe)
+        plot_single_window_visual(state_window, universe, i)
 
     next_guess = state_window[1:]
     next_state = universe.rocket_continuous_dynamics(next_guess[-1], thrust_window[-1])
